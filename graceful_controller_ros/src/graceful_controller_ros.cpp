@@ -330,8 +330,23 @@ geometry_msgs::msg::TwistStamped GracefulControllerROS::computeVelocityCommands(
     return cmd_vel;
   }
 
+  // Transform the robot's pose from the global frame to the odom frame
+  geometry_msgs::msg::PoseStamped odom_robot_pose;
+  try
+  {
+    geometry_msgs::msg::TransformStamped transformStamped;
+    transformStamped = buffer_->lookupTransform("odom", robot_pose.header.frame_id, tf2::TimePointZero);
+
+    tf2::doTransform(robot_pose, odom_robot_pose, transformStamped);
+  }
+  catch (tf2::TransformException &ex)
+  {
+    RCLCPP_ERROR(LOGGER, "Failed to transform robot's pose to odom frame: %s", ex.what());
+    return cmd_vel;
+  }
+
   // Do this here to avoid segfault if not initialized
-  cmd_vel.header.frame_id = robot_pose.header.frame_id;
+  cmd_vel.header.frame_id = odom_robot_pose.header.frame_id;
   cmd_vel.header.stamp = clock_->now();
 
   // Lock the mutex
@@ -396,7 +411,7 @@ geometry_msgs::msg::TwistStamped GracefulControllerROS::computeVelocityCommands(
     {
       double step = static_cast<double>(i) / static_cast<double>(num_steps);
       double yaw = step * yaw_delta;
-      if (isColliding(robot_pose.pose.position.x, robot_pose.pose.position.y, yaw, costmap_ros_, collision_points_))
+      if (isColliding(odom_robot_pose.pose.position.x, odom_robot_pose.pose.position.y, yaw, costmap_ros_, collision_points_))
       {
         RCLCPP_ERROR(LOGGER, "Unable to rotate in place due to collision");
         if (collision_points_ && !collision_points_->markers.empty())
@@ -659,15 +674,38 @@ void GracefulControllerROS::setPlan(const nav_msgs::msg::Path & path)
     return;
   }
 
+  nav_msgs::msg::Path odom_plan;
+  try
+  {
+    geometry_msgs::msg::TransformStamped transformStamped;
+    transformStamped = buffer_->lookupTransform("odom", path.header.frame_id, tf2::TimePointZero);
+
+    // Transform each pose in the path individually
+    for (const auto &pose : path.poses)
+    {
+      geometry_msgs::msg::PoseStamped transformed_pose;
+      tf2::doTransform(pose, transformed_pose, transformStamped);
+      odom_plan.poses.push_back(transformed_pose);
+    }
+    odom_plan.header = path.header; // Copy the header from the original path
+    odom_plan.header.frame_id = "odom";
+    RCLCPP_INFO(LOGGER, "Odom Plan Updated...!");
+  }
+  catch (tf2::TransformException &ex)
+  {
+    RCLCPP_ERROR(LOGGER, "Failed to transform global plan to odom frame: %s", ex.what());
+    return;
+  }
+
   // We need orientations on our poses
   nav_msgs::msg::Path oriented_plan;
   if (compute_orientations_)
   {
-    oriented_plan = addOrientations(path);
+    oriented_plan = addOrientations(odom_plan);
   }
   else
   {
-    oriented_plan = path;
+    oriented_plan = odom_plan;
   }
 
   // Filter noisy orientations (if desired)
