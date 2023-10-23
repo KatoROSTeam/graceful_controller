@@ -436,6 +436,7 @@ namespace graceful_controller
       if (collision_free)
       {
         // Safe to rotate, execute computed command
+        RCLCPP_INFO(LOGGER, "Goal Latched");
         return cmd_vel;
       }
       // Otherwise, fall through and try to get closer to goal in XY
