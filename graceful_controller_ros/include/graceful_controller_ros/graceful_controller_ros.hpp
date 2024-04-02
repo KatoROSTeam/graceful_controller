@@ -150,6 +150,13 @@ private:
     const geometry_msgs::msg::Twist& velocity,
     geometry_msgs::msg::TwistStamped& cmd_vel);
 
+  /**
+   * @brief Callback for Robot pose
+   * @returns None void function
+  */
+  void robot_pose_callback(
+    const geometry_msgs::msg::PoseStamped::SharedPtr msg);
+
   rclcpp_lifecycle::LifecycleNode::WeakPtr node_;
   rclcpp::Clock::SharedPtr clock_;
   std::string name_;
@@ -158,6 +165,8 @@ private:
   std::shared_ptr<rclcpp_lifecycle::LifecyclePublisher<nav_msgs::msg::Path>> local_plan_pub_;
   std::shared_ptr<rclcpp_lifecycle::LifecyclePublisher<geometry_msgs::msg::PoseStamped>> target_pose_pub_;
   std::shared_ptr<rclcpp_lifecycle::LifecyclePublisher<visualization_msgs::msg::MarkerArray>> collision_points_pub_;
+
+  rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr robot_pose_sub_;
 
   bool initialized_;
   GracefulControllerPtr controller_;
@@ -191,6 +200,8 @@ private:
   bool prefer_final_rotation_;
   bool compute_orientations_;
   bool use_orientation_filter_;
+  bool backward_motion_available_;
+  double backwards_check_yaw_tolerance_;
 
   // Goal tolerance
   bool latch_xy_goal_tolerance_;
@@ -203,7 +214,12 @@ private:
   // Optional visualization of colliding and non-colliding points checked
   visualization_msgs::msg::MarkerArray* collision_points_;
 
+  //Reverse motion addition
+  bool backward_motion_;
+  bool robot_pose_received_ = false;
   geometry_msgs::msg::PoseStamped robot_pose_;
+  rclcpp::CallbackGroup::SharedPtr callback_group_;
+  rclcpp::executors::SingleThreadedExecutor callback_group_executor_;
 };
 
 /**

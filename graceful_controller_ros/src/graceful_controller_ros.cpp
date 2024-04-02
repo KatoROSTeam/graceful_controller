@@ -163,6 +163,8 @@ void GracefulControllerROS::configure(
   std::string name, std::shared_ptr<tf2_ros::Buffer> tf,
   std::shared_ptr<nav2_costmap_2d::Costmap2DROS> costmap_ros)
 {
+
+  using std::placeholders::_1;
   if (initialized_)
   {
     RCLCPP_ERROR(LOGGER, "This planner has already been initialized, doing nothing.");
@@ -211,6 +213,10 @@ void GracefulControllerROS::configure(
   declare_parameter_if_not_declared(node, name_ + ".scaling_factor", rclcpp::ParameterValue(0.0));
   declare_parameter_if_not_declared(node, name_ + ".scaling_step", rclcpp::ParameterValue(0.1));
 
+  //params for backwards motion
+  declare_parameter_if_not_declared(node, name_ + ".backward_motion_available", rclcpp::ParameterValue(false));
+  declare_parameter_if_not_declared(node, name_ + ".backwards_check_yaw_tolerance", rclcpp::ParameterValue(0.34));
+
   node->get_parameter(name_ + ".max_vel_x", max_vel_x_);
   node->get_parameter(name_ + ".min_vel_x", min_vel_x_);
   node->get_parameter(name_ + ".max_vel_theta", max_vel_theta_);
@@ -232,12 +238,20 @@ void GracefulControllerROS::configure(
   node->get_parameter(name_ + ".scaling_vel_x_", scaling_vel_x_);
   node->get_parameter(name_ + ".scaling_factor", scaling_factor_);
   node->get_parameter(name_ + ".scaling_step", scaling_step_);
+
+  // params for backwards motion
+  node->get_parameter(name_ + ".backward_motion_available", backward_motion_available_);
+  node->get_parameter(name_ + ".backwards_check_yaw_tolerance", backwards_check_yaw_tolerance_);
+
   resolution_ = costmap_ros_->getCostmap()->getResolution();
   double k1, k2, beta, lambda;
   node->get_parameter(name_ + ".k1", k1);
   node->get_parameter(name_ + ".k2", k2);
   node->get_parameter(name_ + ".beta", beta);
   node->get_parameter(name_ + ".lambda", lambda);
+
+  //set backward motion
+  backward_motion_ = false;
 
   // Set initial velocity limit
   max_vel_x_limited_ = max_vel_x_;
@@ -257,6 +271,24 @@ void GracefulControllerROS::configure(
   local_plan_pub_ = node->create_publisher<nav_msgs::msg::Path>(name_ + "/local_plan", 1);
   target_pose_pub_ = node->create_publisher<geometry_msgs::msg::PoseStamped>(name_ + "/target_pose", 1);
 
+  //Subscriber Robot pose if backward motion is needed
+  if (backward_motion_available_){
+    callback_group_ = node->create_callback_group(
+      rclcpp::CallbackGroupType::MutuallyExclusive,
+      false); 
+
+    callback_group_executor_.add_callback_group(callback_group_, node->get_node_base_interface());
+
+    rclcpp::SubscriptionOptions sub_option;
+    sub_option.callback_group = callback_group_;
+
+    robot_pose_sub_ = node->create_subscription<geometry_msgs::msg::PoseStamped>(
+      "robot_pose",
+      10,
+      std::bind(&GracefulControllerROS::robot_pose_callback, this, _1),
+      sub_option);
+  }
+    
   bool publish_collision_points;
   node->get_parameter(name_ + ".publish_collision_points", publish_collision_points);
   if (publish_collision_points)
@@ -315,6 +347,14 @@ void GracefulControllerROS::deactivate()
   {
     collision_points_pub_->on_deactivate();
   }
+}
+
+// added for backwards motion
+void GracefulControllerROS::robot_pose_callback(
+  const geometry_msgs::msg::PoseStamped::SharedPtr msg)
+{
+  robot_pose_ = *msg;
+  robot_pose_received_ = true;
 }
 
 geometry_msgs::msg::TwistStamped GracefulControllerROS::computeVelocityCommands(
@@ -455,6 +495,7 @@ geometry_msgs::msg::TwistStamped GracefulControllerROS::computeVelocityCommands(
     //  * But no further than the max_lookahed_ distance
     //  * Be feasible to reach in a collision free manner
     geometry_msgs::msg::PoseStamped target_pose = target_poses[i];
+    
     double dist_to_target = target_distances[i];
 
     // Continue if target_pose is too far away from robot
@@ -564,7 +605,7 @@ bool GracefulControllerROS::simulate(
     if (!sim_initial_rotation_)
     {
       if (!controller_->approach(error.pose.position.x, error.pose.position.y, error_angle,
-                                 vel_x, vel_th))
+                                 vel_x, vel_th, backward_motion_))
       {
         RCLCPP_ERROR(LOGGER, "Unable to compute approach");
         return false;
@@ -681,8 +722,64 @@ void GracefulControllerROS::setPlan(const nav_msgs::msg::Path & path)
     filtered_plan = oriented_plan;
   }
 
+  if (backward_motion_available_){
+    // Callback spin to get robot pose
+    robot_pose_received_ = false;
+    callback_group_executor_.spin_some();
+    double robot_orientation;
+
+    //Check and set backward motion / forward motion
+    global_plan_ = filtered_plan;
+
+    if (robot_pose_received_){
+      //Extract yaw from orientation
+      tf2::Quaternion orientation;
+      tf2::fromMsg(robot_pose_.pose.orientation, orientation);
+      double roll, pitch, yaw;
+      yaw = 0.0;
+      tf2::Matrix3x3(orientation).getRPY(roll, pitch, yaw);
+      robot_orientation = normalizeAngle(yaw);
+    }
+
+    else{
+      robot_orientation = 0.0;
+      RCLCPP_ERROR(LOGGER, "Robot Pose Unavailable for Backwards motion");
+    }
+
+    tf2::Quaternion orientation;
+    tf2::fromMsg(global_plan_.poses[0].pose.orientation, orientation);
+    double roll, pitch, yaw;
+    yaw = 0.0;
+    tf2::Matrix3x3(orientation).getRPY(roll, pitch, yaw);
+    double path_orientation = normalizeAngle(yaw);
+    backward_motion_ = false;
+
+    RCLCPP_INFO(LOGGER, "Path orientation: %.2f, Robot orientation %.2f", radiansToDegrees(path_orientation), radiansToDegrees(robot_orientation));
+    double diff_angle = normalizeAngle(path_orientation - robot_orientation);
+    diff_angle = abs(radiansToDegrees(diff_angle));
+    double angle_tolerance = abs(radiansToDegrees(backwards_check_yaw_tolerance_));
+    RCLCPP_INFO(LOGGER, "Angle Difference: %.2f, Angle Tolerance: %.2f", diff_angle, angle_tolerance);
+    //assume already oriented to path
+    if (diff_angle < (180.0 + angle_tolerance) && diff_angle > (180.0 - angle_tolerance)){
+      backward_motion_ = true;
+      global_plan_ = filtered_plan;
+      RCLCPP_INFO(LOGGER, "Backwards Motion INITIATED");
+    }
+    else if(diff_angle > (0.0 - angle_tolerance) && diff_angle < (0.0 + angle_tolerance)){
+      backward_motion_ = false;
+      global_plan_ = filtered_plan;
+      RCLCPP_INFO(LOGGER, "Backwards Motion NOT REQUIRED");
+    }
+  }
+
+  else{
+    backward_motion_ = false;
+    global_plan_ = filtered_plan;
+  }
+
+
+
   // Store the plan for computeVelocityCommands
-  global_plan_ = filtered_plan;
   has_new_path_ = true;
   goal_tolerance_met_ = false;
   RCLCPP_INFO(LOGGER, "Recieved a new path with %lu points in the %s frame", filtered_plan.poses.size(),

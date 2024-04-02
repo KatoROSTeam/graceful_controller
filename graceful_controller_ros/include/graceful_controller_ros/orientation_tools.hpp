@@ -63,6 +63,22 @@ nav_msgs::msg::Path applyOrientationFilter(const nav_msgs::msg::Path& path,
                                            double yaw_tolerance,
                                            double gap_tolerance);
 
+/**
+ * @brief Convert Radians to degrees
+ * @param radians Angle in radians
+ * @returns angle in degrees
+*/
+double radiansToDegrees(double radians);
+
+/**
+ * @brief Convert normalized angle to signed angles
+ * @param normalizedAngle normalized angle 
+ * @returns converted angles
+*/
+double convertToSignedAngle(double normalizedAngle);
+
+double normalizeAngle(double angle);
+
 }  // namespace graceful_controller
 
 #endif  // GRACEFUL_CONTROLLER_ROS_ORIENTATION_TOOLS_HPP

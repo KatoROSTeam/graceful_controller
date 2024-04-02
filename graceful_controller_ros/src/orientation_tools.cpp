@@ -59,6 +59,25 @@ void setYaw(geometry_msgs::msg::PoseStamped& pose, double yaw)
   pose.pose.orientation.w = cos(yaw / 2.0);
 }
 
+double normalizeAngle(double angle)
+{
+  constexpr double TWO_PI = 2.0 * M_PI;
+  return std::fmod(std::fmod(angle, TWO_PI) + TWO_PI, TWO_PI);
+}
+
+double convertToSignedAngle(double normalizedAngle)
+{
+  constexpr double TWO_PI = 2.0 * M_PI;
+    if (normalizedAngle > M_PI)
+        return normalizedAngle - TWO_PI;
+    else
+        return normalizedAngle;
+}
+
+double radiansToDegrees(double radians) {
+    return radians * (180.0 / M_PI);
+}
+
 nav_msgs::msg::Path addOrientations(const nav_msgs::msg::Path& path)
 {
   nav_msgs::msg::Path oriented_path;
