@@ -838,13 +838,23 @@ void GracefulControllerROS::setSpeedLimit(const double& speed_limit, const bool&
   // Lock the mutex
   std::lock_guard<std::mutex> lock(config_mutex_);
 
-  if (percentage)
-  {
-    max_vel_x_limited_ = std::max(speed_limit * max_vel_x_, min_vel_x_);
+  if (speed_limit == 0.0){
+  
+    max_vel_x_limited_ = max_vel_x_;
+  
   }
-  else
-  {
-    max_vel_x_limited_ = std::max(speed_limit, min_vel_x_);
+
+  else{
+
+    if (percentage)
+    {
+      max_vel_x_limited_ = std::max((speed_limit/100.0) * max_vel_x_, min_vel_x_);
+    }
+    else
+    {
+      max_vel_x_limited_ = std::max(speed_limit, min_vel_x_);
+    }
+
   }
   // Limit maximum angular velocity proportional to maximum linear velocity
   max_vel_theta_limited_ = max_vel_x_limited_ * max_x_to_max_theta_scale_factor_;
