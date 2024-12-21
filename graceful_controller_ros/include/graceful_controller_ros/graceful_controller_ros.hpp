@@ -197,6 +197,7 @@ private:
   double acc_dt_;
   double yaw_filter_tolerance_;
   double yaw_gap_tolerance_;
+  double yaw_slowing_factor_;
   bool prefer_final_rotation_;
   bool compute_orientations_;
   bool use_orientation_filter_;

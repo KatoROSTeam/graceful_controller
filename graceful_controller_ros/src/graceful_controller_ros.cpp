@@ -203,6 +203,7 @@ void GracefulControllerROS::configure(
   declare_parameter_if_not_declared(node, name_ + ".use_orientation_filter", rclcpp::ParameterValue(false));
   declare_parameter_if_not_declared(node, name_ + ".yaw_filter_tolerance", rclcpp::ParameterValue(0.785));
   declare_parameter_if_not_declared(node, name_ + ".yaw_gap_tolerance", rclcpp::ParameterValue(0.25));
+  declare_parameter_if_not_declared(node, name_ + ".yaw_slowing_factor", rclcpp::ParameterValue(0.5));
   declare_parameter_if_not_declared(node, name_ + ".latch_xy_goal_tolerance", rclcpp::ParameterValue(false));
   declare_parameter_if_not_declared(node, name_ + ".publish_collision_points", rclcpp::ParameterValue(false));
   declare_parameter_if_not_declared(node, name_ + ".k1", rclcpp::ParameterValue(2.0));
@@ -234,6 +235,7 @@ void GracefulControllerROS::configure(
   node->get_parameter(name_ + ".use_orientation_filter", use_orientation_filter_);
   node->get_parameter(name_ + ".yaw_filter_tolerance", yaw_filter_tolerance_);
   node->get_parameter(name_ + ".yaw_gap_tolerance", yaw_gap_tolerance_);
+  node->get_parameter(name_ + ".yaw_slowing_factor", yaw_slowing_factor_);
   node->get_parameter(name_ + ".latch_xy_goal_tolerance", latch_xy_goal_tolerance_);
   node->get_parameter(name_ + ".scaling_vel_x_", scaling_vel_x_);
   node->get_parameter(name_ + ".scaling_factor", scaling_factor_);
@@ -819,6 +821,7 @@ void GracefulControllerROS::rotateTowards(
   geometry_msgs::msg::TwistStamped& cmd_vel)
 {
   // Determine max velocity based on current speed
+  RCLCPP_INFO(LOGGER, "Rotating towards goal, error = %f", yaw);
   double max_vel_th = max_vel_theta_limited_;
   if (acc_dt_ > 0.0)
   {
@@ -829,8 +832,9 @@ void GracefulControllerROS::rotateTowards(
   }
 
   cmd_vel.twist.linear.x = 0.0;
-  cmd_vel.twist.angular.z = std::sqrt(2 * acc_lim_theta_ * fabs(yaw));
-  cmd_vel.twist.angular.z = sign(yaw) * std::min(max_vel_th, std::max(min_in_place_vel_theta_, cmd_vel.twist.angular.z));
+  cmd_vel.twist.angular.z = yaw_slowing_factor_ * yaw;
+  double yaw_vel = yaw_slowing_factor_ * yaw;
+  cmd_vel.twist.angular.z = sign(yaw) * std::min(max_vel_th, std::max(min_in_place_vel_theta_, abs(yaw_vel)));
 }
 
 void GracefulControllerROS::setSpeedLimit(const double& speed_limit, const bool& percentage)
