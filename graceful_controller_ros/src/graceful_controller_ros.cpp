@@ -191,6 +191,8 @@ namespace graceful_controller
     declare_parameter_if_not_declared(node, name_ + ".backward_motion_available", rclcpp::ParameterValue(false));
     declare_parameter_if_not_declared(node, name_ + ".backwards_check_yaw_tolerance", rclcpp::ParameterValue(0.34));
 
+    declare_parameter_if_not_declared(node, name_ + ".ignore_orientation_distance", rclcpp::ParameterValue(0.10));
+
     // Retrieve parameters
     node->get_parameter(name_ + ".max_vel_x", max_vel_x_);
     node->get_parameter(name_ + ".min_vel_x", min_vel_x_);
@@ -219,6 +221,8 @@ namespace graceful_controller
     node->get_parameter(name_ + ".backward_motion_available", backward_motion_available_);
     node->get_parameter(name_ + ".backwards_check_yaw_tolerance", backwards_check_yaw_tolerance_);
 
+    node->get_parameter(name_ + ".ignore_orientation_distance", ignore_orientation_distance_);
+
     // Log loaded parameters
     RCLCPP_INFO(LOGGER, "Parameters loaded:");
     RCLCPP_INFO(LOGGER, "  max_vel_x: %.2f", max_vel_x_);
@@ -245,6 +249,7 @@ namespace graceful_controller
     RCLCPP_INFO(LOGGER, "  scaling_step: %.2f", scaling_step_);
     RCLCPP_INFO(LOGGER, "  backward_motion_available: %s", backward_motion_available_ ? "TRUE" : "FALSE");
     RCLCPP_INFO(LOGGER, "  backwards_check_yaw_tolerance: %.2f", backwards_check_yaw_tolerance_);
+    RCLCPP_INFO(LOGGER, "  ignore_orientation_distance: %.2f", ignore_orientation_distance_);
 
     // Retrieve additional parameters
     resolution_ = costmap_ros_->getCostmap()->getResolution();
@@ -630,13 +635,14 @@ namespace graceful_controller
           RCLCPP_INFO(LOGGER, "Simulation successful with sim_velocity: %.2f", sim_velocity);
           RCLCPP_INFO(LOGGER, "After Simulation -> cmd_vel Output -> linear.x: %.2f, angular.z: %.2f",
                       cmd_vel.twist.linear.x, cmd_vel.twist.angular.z);
-          if (dist_to_goal < 0.15)
+          if (dist_to_goal < ignore_orientation_distance_)
           {
-            RCLCPP_INFO(LOGGER, "1 Robot is within %.2f meters of the goal. Ignoring orientation changes.", ignore_orientation_distance_);
+            RCLCPP_INFO(LOGGER, "1 Robot is within %.2f meters of the goal. Ignoring orientation changes.", dist_to_goal);
 
-            // Stop rotation by setting angular velocity to zero
             cmd_vel.twist.angular.z = 0.0;
-          }          
+          }
+          RCLCPP_INFO(LOGGER, "After correcting orientation linear.x: %.2f, angular.z: %.2f",
+                      cmd_vel.twist.linear.x, cmd_vel.twist.angular.z);
           return cmd_vel;
         }
 
