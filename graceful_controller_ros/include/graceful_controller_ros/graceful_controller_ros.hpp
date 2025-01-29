@@ -52,6 +52,8 @@
 #include "graceful_controller_ros/orientation_tools.hpp"
 #include "graceful_controller_ros/visualization.hpp"
 
+#include "rclcpp/parameter_events_filter.hpp"
+
 namespace graceful_controller
 {
   class GracefulControllerROS : public nav2_core::Controller
@@ -225,6 +227,19 @@ namespace graceful_controller
     geometry_msgs::msg::PoseStamped robot_pose_;
     rclcpp::CallbackGroup::SharedPtr callback_group_;
     rclcpp::executors::SingleThreadedExecutor callback_group_executor_;
+
+    rclcpp::node_interfaces::OnSetParametersCallbackHandle::SharedPtr param_callback_handle_;
+
+    rcl_interfaces::msg::SetParametersResult onParameterChange(
+    const std::vector<rclcpp::Parameter>& parameters);
+
+    rcl_interfaces::msg::SetParametersResult parameter_callback(const std::vector<rclcpp::Parameter> & parameters)
+    {
+        // Handle parameter change
+        rcl_interfaces::msg::SetParametersResult result;
+        result.successful = true;
+        return result;
+    }
   };
 
   /**
@@ -235,6 +250,7 @@ namespace graceful_controller
    */
   void computeDistanceAlongPath(const std::vector<geometry_msgs::msg::PoseStamped> &poses,
                                 std::vector<double> &distances);
+
 
 } // namespace graceful_controller
 

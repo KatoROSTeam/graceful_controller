@@ -156,6 +156,10 @@ namespace graceful_controller
       throw std::runtime_error{"Failed to lock node"};
     }
 
+    param_callback_handle_ = node->add_on_set_parameters_callback(
+        std::bind(&GracefulControllerROS::onParameterChange, this, std::placeholders::_1)
+    );
+
     clock_ = node->get_clock();
 
     // Setup parameters
@@ -349,6 +353,7 @@ namespace graceful_controller
 
     initialized_ = true;
     RCLCPP_INFO(LOGGER, "GracefulControllerROS successfully configured and initialized.");
+
   }
 
   void GracefulControllerROS::cleanup()
@@ -405,8 +410,13 @@ namespace graceful_controller
       const geometry_msgs::msg::Twist &velocity,
       nav2_core::GoalChecker *goal_checker)
   {
+    RCLCPP_INFO(LOGGER, "Goal has already been achieved. Stopping the robot.");
+    std::lock_guard<std::mutex> lock(config_mutex_);
+
     geometry_msgs::msg::TwistStamped cmd_vel;
 
+    max_vel_x_limited_ = max_vel_x_;
+    RCLCPP_INFO(LOGGER, "Using max_vel_x_: %f, max_vel_x_limited_: %f", max_vel_x_, max_vel_x_limited_);
     if (!initialized_)
     {
       RCLCPP_WARN(LOGGER, "Controller is not initialized, call configure() before using this planner");
@@ -430,7 +440,7 @@ namespace graceful_controller
     cmd_vel.header.frame_id = robot_pose.header.frame_id;
     cmd_vel.header.stamp = clock_->now();
 
-    std::lock_guard<std::mutex> lock(config_mutex_);
+    // std::lock_guard<std::mutex> lock(config_mutex_);
 
     // Publish the global plan
     global_plan_pub_->publish(global_plan_);
@@ -1072,6 +1082,31 @@ namespace graceful_controller
                      std::hypot(poses[i].pose.position.x - poses[i - 1].pose.position.x,
                                 poses[i].pose.position.y - poses[i - 1].pose.position.y);
     }
+  }
+
+  rcl_interfaces::msg::SetParametersResult GracefulControllerROS::onParameterChange(
+      const std::vector<rclcpp::Parameter> & parameters)
+  {
+
+      std::lock_guard<std::mutex> lock(config_mutex_);  // Ensure thread safety
+
+      rcl_interfaces::msg::SetParametersResult result;
+      result.successful = true;
+
+      RCLCPP_INFO(LOGGER, "INSIDE UPDATE PARAMETERS");
+
+      for (const auto & param : parameters)
+      {
+          const auto & type = param.get_type();
+          const auto & name = param.get_name();
+          RCLCPP_INFO(LOGGER, "INSIDE UPDATE PARAMETERS 2");
+          if (param.get_name() == name_ + ".max_vel_x")
+          {
+              max_vel_x_ = param.as_double();
+              RCLCPP_INFO(LOGGER, "Current Updated max_speed to: %f", max_vel_x_);
+          }
+      }
+      return result;
   }
 
 } // namespace graceful_controller
